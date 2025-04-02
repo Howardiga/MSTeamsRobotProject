@@ -81,7 +81,7 @@
             color: #666;
             margin-top: 4px;
             display: flex;
-            align-items: center;
+            flex-direction: column;
             gap: 5px;
         }
         
@@ -184,11 +184,70 @@
             margin-top: 8px;
             padding-top: 5px;
         }
+
+        .source-citations {
+            font-size: 0.8rem;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border-left: 3px solid #4b53bc;
+        }
+
+        .source-item {
+            margin-bottom: 4px;
+        }
+
+        .page-badge {
+            background-color: #ede7f6;
+            color: #5e35b1;
+            border-radius: 4px;
+            padding: 2px 5px;
+            font-weight: bold;
+        }
+
+        .show-sources-btn {
+            background-color: transparent;
+            color: #4b53bc;
+            border: 1px solid #4b53bc;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+
+        .show-sources-btn:hover {
+            background-color: #f0f2fd;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .citation-marker {
+            font-size: 0.7rem;
+            vertical-align: super;
+            color: #4b53bc;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        /* New multi-page notification styles */
+        .multi-page-notice {
+            background-color: #fff8e1;
+            border-left: 3px solid #ffb300;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+            color: #775500;
+        }
     </style>
 </head>
 <body>
     <header>
         <h1>Microsoft Teams Assistant</h1>
+        <div id="system-info" style="font-size: 0.8rem; color: #fff; margin-top: 5px;"></div>
+        <button id="reprocess-btn" style="background-color: #333; font-size: 0.7rem; padding: 5px 10px; margin-top: 5px; display: none;">Reprocess PDF</button>
     </header>
     
     <div id="chat-container">
@@ -221,6 +280,8 @@
             const chatForm = document.getElementById('chat-form');
             const questionInput = document.getElementById('question');
             const sendButton = document.getElementById('send-button');
+            const reprocessBtn = document.getElementById('reprocess-btn');
+            const systemInfoDiv = document.getElementById('system-info');
             
             // Automatic scroll to bottom when new messages are added
             function scrollToBottom() {
@@ -228,25 +289,103 @@
             }
             
             // Add a message to the chat
-            function addMessage(content, isUser = false, source = null) {
+            function addMessage(content, isUser = false, source = null, sources = [], involvedPages = null) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
                 
                 const messageContent = document.createElement('div');
                 messageContent.className = 'message-content';
-                messageContent.innerHTML = content;
+                
+                // Add multi-page notification if applicable
+                if (!isUser && involvedPages && involvedPages.length > 1) {
+                    const pageList = involvedPages.map(p => 
+                        typeof p === 'number' ? p : 'Unknown'
+                    ).sort((a, b) => a - b).join(', ');
+                    
+                    const multiPageNotice = document.createElement('div');
+                    multiPageNotice.className = 'multi-page-notice';
+                    multiPageNotice.innerHTML = `<strong>Multi-page information:</strong> This answer contains information from pages ${pageList}.`;
+                    messageContent.appendChild(multiPageNotice);
+                }
+                
+                // Format citation markers in the content
+                const formattedContent = content.replace(/\[(\d+)\]/g, '<span class="citation-marker">[$1]</span>');
+                
+                // Add the formatted content div after the multi-page notice (if any)
+                const contentDiv = document.createElement('div');
+                contentDiv.innerHTML = formattedContent;
+                messageContent.appendChild(contentDiv);
                 
                 messageDiv.appendChild(messageContent);
                 
-                // Add source badge if provided
-                if (!isUser && source) {
+                // Add source information if provided
+                if (!isUser) {
                     const messageMeta = document.createElement('div');
                     messageMeta.className = 'message-meta';
                     
-                    if (source === 'pdf') {
-                        messageMeta.innerHTML = '<span class="source-badge">From Teams Guide</span>';
-                    } else if (source === 'curated') {
-                        messageMeta.innerHTML = '<span class="source-badge curated-badge">Verified Info</span>';
+                    // Add source badge
+                    if (source) {
+                        const sourceBadgeDiv = document.createElement('div');
+                        
+                        if (source === 'pdf') {
+                            sourceBadgeDiv.innerHTML = '<span class="source-badge">From Teams Guide</span>';
+                        } else if (source === 'curated') {
+                            sourceBadgeDiv.innerHTML = '<span class="source-badge curated-badge">Verified Info</span>';
+                        }
+                        
+                        messageMeta.appendChild(sourceBadgeDiv);
+                    }
+                    
+                    // Add sources section if we have source citations
+                    if (sources && sources.length > 0) {
+                        const sourceButton = document.createElement('button');
+                        sourceButton.className = 'show-sources-btn';
+                        sourceButton.textContent = 'Show Sources';
+                        sourceButton.type = 'button';
+                        
+                        const sourcesDiv = document.createElement('div');
+                        sourcesDiv.className = 'source-citations hidden';
+                        sourcesDiv.innerHTML = '<strong>Sources:</strong>';
+                        
+                        const sourcesList = document.createElement('div');
+                        
+                        sources.forEach((source, index) => {
+                            const sourceItem = document.createElement('div');
+                            sourceItem.className = 'source-item';
+                            
+                            // Create page info with multi-page badges if applicable
+                            let pageInfo = `<span class="page-badge">Page ${source.page}</span>`;
+                            
+                            // Add cross-references to other pages if they exist
+                            if (source.all_pages && source.all_pages.length > 1) {
+                                pageInfo += ' (Also references: ';
+                                source.all_pages.forEach((page, i) => {
+                                    if (page !== source.page) {
+                                        pageInfo += `<span class="page-badge" style="background-color: #e1f5fe; color: #0277bd; margin: 0 2px;">${page}</span>`;
+                                    }
+                                });
+                                pageInfo += ')';
+                            }
+                            
+                            sourceItem.innerHTML = `
+                                <span class="citation-marker">[${index + 1}]</span>
+                                ${pageInfo} 
+                                ${source.text}
+                            `;
+                            sourcesList.appendChild(sourceItem);
+                        });
+                        
+                        sourcesDiv.appendChild(sourcesList);
+                        
+                        sourceButton.addEventListener('click', function() {
+                            sourcesDiv.classList.toggle('hidden');
+                            sourceButton.textContent = sourcesDiv.classList.contains('hidden') 
+                                ? 'Show Sources' 
+                                : 'Hide Sources';
+                        });
+                        
+                        messageMeta.appendChild(sourceButton);
+                        messageMeta.appendChild(sourcesDiv);
                     }
                     
                     messageDiv.appendChild(messageMeta);
@@ -320,7 +459,7 @@
                         addMessage(`<p>Sorry, I encountered an error: ${data.error}</p>`, false);
                     } else {
                         // Format the AI response
-                        const formattedAnswer = data.answer
+                        let formattedAnswer = data.answer
                             .replace(/\n\n/g, '</p><p>')
                             .replace(/\n/g, '<br>')
                             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -328,14 +467,25 @@
                         let debugInfo = '';
                         if (data.debug) {
                             const matchDetails = data.debug;
-                            debugInfo = `<div class="debug-info">
-                                <p><small><i>Debug: Match score: ${matchDetails.topMatchScore ? Math.round(matchDetails.topMatchScore * 100) + '%' : 'N/A'} | 
-                                Source: ${matchDetails.topMatchSource || 'N/A'} | 
-                                Topic: ${matchDetails.topMatchTopic || 'N/A'}</i></small></p>
-                            </div>`;
-                        }
+                            let debugText = '';
                             
-                        addMessage(`<p>${formattedAnswer}</p>${debugInfo}`, false, data.source);
+                            if (matchDetails.retrievalTime) {
+                                // Advanced pipeline debug info
+                                debugText = `<p><small><i>Debug: Retrieved ${matchDetails.matchedChunks} chunks in ${matchDetails.retrievalTime.toFixed(2)}s | 
+                                Generated in ${matchDetails.generationTime.toFixed(2)}s</i></small></p>`;
+                            } else {
+                                // Basic pipeline debug info
+                                debugText = `<p><small><i>Debug: Match score: ${matchDetails.topMatchScore ? Math.round(matchDetails.topMatchScore * 100) + '%' : 'N/A'} | 
+                                Total chunks: ${matchDetails.totalChunks || 'N/A'} | 
+                                Matched chunks: ${matchDetails.matchedChunks || 'N/A'}</i></small></p>`;
+                            }
+                            
+                            debugInfo = `<div class="debug-info">${debugText}</div>`;
+                        }
+                        
+                        // Add message with multi-page support
+                        const involvedPages = data.debug?.involvedPages || [];
+                        addMessage(`<p>${formattedAnswer}</p>${debugInfo}`, false, data.source, data.sources, involvedPages);
                     }
                 } catch (error) {
                     removeLoadingIndicator();
@@ -350,6 +500,70 @@
             
             // Auto-focus the input field
             questionInput.focus();
+            
+            // Fetch and display system info
+            async function fetchSystemInfo() {
+                try {
+                    const response = await fetch('/api/info');
+                    if (response.ok) {
+                        const info = await response.json();
+                        
+                        // Display system info in header
+                        if (systemInfoDiv) {
+                            systemInfoDiv.innerHTML = `Using ${info.usingAdvancedPipeline ? 'Advanced' : 'Basic'} PDF RAG Pipeline with ${info.llmModel}`;
+                        }
+                        
+                        // Show reprocess button if using advanced pipeline
+                        if (info.usingAdvancedPipeline && reprocessBtn) {
+                            reprocessBtn.style.display = 'inline-block';
+                        }
+                        
+                        // Add system info to the first message
+                        const firstMessage = document.querySelector('.ai-message .message-content');
+                        if (firstMessage) {
+                            const infoText = document.createElement('p');
+                            infoText.className = 'system-info';
+                            infoText.innerHTML = `<small><i>Using ${info.usingAdvancedPipeline ? 'Advanced' : 'Basic'} PDF RAG Pipeline with ${info.llmModel}</i></small>`;
+                            firstMessage.appendChild(infoText);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching system info:', error);
+                }
+            }
+            
+            // Handle reprocessing
+            reprocessBtn.addEventListener('click', async function() {
+                const confirmReprocess = confirm('Reprocessing will rebuild the vector database from the PDF. This may take a few minutes. Continue?');
+                
+                if (confirmReprocess) {
+                    // Disable button and change text
+                    reprocessBtn.disabled = true;
+                    reprocessBtn.textContent = 'Processing...';
+                    
+                    try {
+                        const response = await fetch('/api/reprocess', {
+                            method: 'POST'
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            alert(`PDF reprocessed successfully! Created ${result.documentCount} document chunks.`);
+                        } else {
+                            const error = await response.json();
+                            alert(`Error: ${error.error}`);
+                        }
+                    } catch (error) {
+                        alert(`Error: ${error.message}`);
+                    } finally {
+                        // Re-enable button
+                        reprocessBtn.disabled = false;
+                        reprocessBtn.textContent = 'Reprocess PDF';
+                    }
+                }
+            });
+            
+            fetchSystemInfo();
         });
     </script>
 </body>
